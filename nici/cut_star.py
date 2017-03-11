@@ -23,10 +23,57 @@ class subreg:
         shifty=np.rint(cor.shape[0]/2.) - max(0,y-40)-g[3]
         #shifts.append((shifty,shiftx))
         return (shifty,shiftx)
+def bin_median(arr,smaller_by_factor=1,returnStd=False):
+    '''bin an array arr by creating super pixels of size
+    smaller_by_factor*smaller_by_factor and taking the median. 
+    Can optionally also return the standard deviation within
+    the super-pixels.
+    INPUTS:
+    arr: 2d array
+    smaller_by_factor: integer
+    returnStd: bool, default False
+    RETURNS binned_array OR binned_array, bin_std'''
+    sub_arrs0=[]
+    for i in xrange(smaller_by_factor):
+        for j in xrange(smaller_by_factor):
+            sub_arrs0.append(arr[i::smaller_by_factor,j::smaller_by_factor])
+    sub_arrs=[s[:sub_arrs0[-1].shape[0]-1,:sub_arrs0[-1].shape[1]-1] for s in sub_arrs0]
+    if returnStd:
+        #zip truncates each sub-arr at the length of the minimum length subarr.
+        #this ensures every bin has the same number of datapoints, but throws
+        #away data if the last bin doesn't have a full share of datapoints.
+        return np.median(sub_arrs,axis=0),np.std(sub_arrs,axis=0)
+    else:
+        return np.median(sub_arrs,axis=0)
+
+def find_max_star(image):
+    '''Median smooth an image and find the max pixel.
+    The median smoothing helps filter hot pixels and 
+    cosmic rays. The median is taken by using bin_median
+    with a smaller_by_factor=16'''
+    image[np.isnan(image)]=np.median(image[~np.isnan(image)])
+    binned=bin_median(image,smaller_by_factor=16)
+    y,x=np.transpose((binned==binned.max()).nonzero())[0]
+    y*=16
+    x*=16
+    while True:
+        x0=max(x-15,0)
+        y0=max(y-15,0)
+        patch = image[y0:min(y+15,image.shape[0]),x0:min(x+15,image.shape[1])]
+        dy,dx=np.transpose(np.where(patch==patch.max()))[0]
+        dy-=(y-y0)
+        dx-=(x-x0)
+        y=min( max(y+dy,0), image.shape[0]-1)
+        x=min( max(x+dx,0), image.shape[1]-1)
+        if (dx==0) and (dy==0):
+            break
+    return y,x
+
 
 def get_center(image):
     indices=np.indices(image.shape)
-    test=np.where((indices[0]-150)**2+(indices[1]-150)**2<10**2)
+    test=np.where((indices[0]-int(np.ceil(image.shape[0]/2.)))**2+\
+                  (indices[1]-int(np.ceil(image.shape[1]/2.)))**2 < 10**2)
     m=np.zeros_like(image)
     m[test]=1
     smoothed=fftconvolve(image,m,'same')
@@ -45,20 +92,20 @@ def align_stars(indir,outdir=None,ncpu=1,keepfrac=0.7):
     images = []
     for ii,fn in enumerate(filetable['fninterm']):
         data,head = fits.getdata(fn,header=True)
-        if not len(data.shape) == 3:
+        if not len(data.shape) == 2:
             raise ValueError('Unknown data fromat at file %s'%fn)
-        starx = filetable[ii]['roughx']
-        stary = filetable[ii]['roughy']
-        nims = data.shape[0]
-        datacut = np.full([nims,2*pxhalf+1,2*pxhalf+1],np.nan)
-        data = data[:,
-                       min(0, stary-pxhalf) : max(stary+pxhalf+1, data.shape[1]),
-                       min(0, starx-pxhalf) : max(starx+pxhalf+1, data.shape[0]),
+        starx = int(filetable[ii]['roughx'])
+        stary = int(filetable[ii]['roughy'])
+#        nims = data.shape[0]
+        datacut = np.full([2*pxhalf+1,2*pxhalf+1],np.nan)
+        data = data[max(0, stary-pxhalf) : min(stary+pxhalf+1, data.shape[1]),
+                    max(0, starx-pxhalf) : min(starx+pxhalf+1, data.shape[0]),
                 ]
-        datacut[:,0:data.shape[1],0:data.shape[2]]
-        PAs.append(nims*[list(head[hpa])])
-        for hh in range(nims):
-            images.append = data[hh,:,:]
+        datacut[0:data.shape[0],0:data.shape[1]] = data
+        PAs.append(head[hpa])
+        images.append(datacut)
+#        for hh in range(nims):
+#            images.append( data[hh,:,:])
     
     
     
@@ -91,7 +138,7 @@ def align_stars(indir,outdir=None,ncpu=1,keepfrac=0.7):
         cross_reg.append(np.sum((im-first_median)**2.))
         
     sorted_cross_reg=np.argsort(cross_reg)
-    selected_cross_reg=sorted_cross_reg[0:int(keepFrac*len(images))]
+    selected_cross_reg=sorted_cross_reg[0:int(keepfrac*len(images))]
     n_selected=len(selected_cross_reg)
 
     
@@ -109,24 +156,28 @@ def align_stars(indir,outdir=None,ncpu=1,keepfrac=0.7):
     second_shifts = shifts
     pool.close()
 
-    #get center for images. Should be pxhalf
+    #get center for images. Move to pxhalf
     xycen = []
     for h in range(n_selected):
-        xycen.append( get_center(images[h,:,:]) )
-    yxcenshift = np.median(xycen,axis=0)[::-1] - [pxhalf,pxhalf]
-            
+#        xycen.append( get_center(images[h,:,:]) )
+        xycen.append( gaussfit(images[h,pxhalf-5:pxhalf+5,
+                                        pxhalf-5:pxhalf+5],\
+                               params=(0.,-200.,6.,6.,3.,3.,0.))[2:4] - [5.,5.])
+    yxcenshift = np.median(xycen,axis=0)[::-1] #- [pxhalf,pxhalf]
+    print('General offset of images: %s' %yxcenshift)
     for h in range(n_selected): 
-        shifts[h] += xycenshift
+        shifts[h] += yxcenshift
         images[h,:,:]=shift(images[h,:,:], shifts[h])
     
     #/////////////////////////////////////////////////////////
     #save
     #/////////////////////////////////////////////////////////
     images = np.stack(images,axis=0)
+    PAs = np.array(PAs)
     PAs_sel = PAs[selected_cross_reg]
     filet_sel = filetable[selected_cross_reg]
     filet_sel['orig_nr'] = selected_cross_reg
-    fits.writeto(outdir+'center_im_sat.fits',images)
-    fits.writeto(outdir+'rotnth.fits')
+    fits.writeto(outdir+'center_im_sat.fits',images,clobber=True)
+    fits.writeto(outdir+'rotnth.fits',PAs,clobber=True)
 
-    print('DONE WITH ALL. SAVED DEROTATED IMAGES AND ANGLES IN %s. Their shape is %'%(outdir,images.shape))
+    print('DONE WITH ALL. SAVED DEROTATED IMAGES AND ANGLES IN %s. Their shape is %s'%(outdir,images.shape))

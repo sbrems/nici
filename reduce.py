@@ -9,10 +9,12 @@ from skimage.feature import register_translation
 from scipy.ndimage.interpolation import rotate
 from scipy.ndimage.interpolation import shift
 from nici.params import *
+from nici import misc,fix_pix,data,darkflat,cut_star,badpixel
 
+import ipdb
 
-def do(waveband,target=None,date=None,pardir = None, datadir =None,darkdir=None,ncpu=10,
-       keepfrac=0.7):
+def do(waveband,target=None,date=None,pardir = None, datadir =None,darkdir=None,flatdir=None,
+       ncpu=10,keepfrac=0.7):
     '''A Pipeline to reduce NICI data. Provide darks in darkdir, flats in flatdir.
     Assuming dithering, so taking the neighbouring two images with a different dither
     position and interpolating between the pixels to to get the flat.
@@ -24,12 +26,16 @@ def do(waveband,target=None,date=None,pardir = None, datadir =None,darkdir=None,
                                                    %(waveband,wavebands))
     if target == None: target = 'HD97048'
     if date   == None: date ='20120401'
-    if pardir == None: pardir  = '/home/sbrems/NICI/'
-    if datadir== None: datadir = pardir+'/'+date+'/'+target+'/'+waveband+'/'
-    if darkdir== None: darkdir = pardir+'/'+date+'/'+darks+'/'+waveband+'/'
-    if flatdir== None: flatdir = pardir+'/'+date+'/'+flats+'/'+waveband+'/'
+    if pardir == None: pardir  = '/disk1/brems/NICI/'
+    if datadir== None: datadir = pardir+date+'/'+target+'/'+waveband+'/'
+    if darkdir== None: darkdir = pardir+date+'/darks/'+waveband+'/'
+    if flatdir== None: flatdir = pardir+date+'/flats/'+waveband+'/'
     intermdir = datadir+'interm/'
     finaldir =  datadir+'results/'
+    for direct in [intermdir,finaldir]:
+        if not os.path.exists(direct):
+            os.mkdir(direct)
+    fnbpm = 'bpm_'+waveband+'.fits'
 
     #getting and sorting darks and flats
     ddata,dTexp = darkflat.sort(darkdir,hexpt)
@@ -37,11 +43,13 @@ def do(waveband,target=None,date=None,pardir = None, datadir =None,darkdir=None,
     fdata = darkflat.subtract_dark(fdata,fTexp,ddata,dTexp)
     
     #making the bpm
-    if os.exists(flatdir+fnbpm):
-        bpm = fits.getdata(flatdir+fnbpm)
+
+    if os.path.exists(pardir+fnbpm):
+        print('Found bpm in %s'%(pardir+fnbpm))
+        bpm = fits.getdata(pardir+fnbpm)
     else:
-        bpm = badpixel.make_bpm(fdata)
-        fits.writeto(flatdir+fnbpm)
+        bpm = badpixel.make_bpm(flatdir)
+        fits.writeto(pardir+fnbpm,bpm)
     
     #finding the star positions and time of observation
     filetable = data.return_quad(datadir,hexpt,ddata,dTexp,fdata,fTexp,bpm)
