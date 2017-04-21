@@ -22,15 +22,15 @@ def read_fits(directory,verbose=True):
     #now make the array
     filenames = []
     headers = []
-    all_data = np.full((n_images,form[-2],form[-1]),np.nan,dtype=np.float32) #float16 for memory
+    all_data = np.full((n_images,form[-2],form[-1]),np.nan,dtype=np.float64) #float16 for memory
     n = 0
     for file in sorted(os.listdir(directory)):
         if file.endswith('.fits'):
             data,header = fits.getdata(directory+file,header=True)
             if len(data.shape) == 3 :#image cube
                 all_data[n:n+data.shape[0],:,:] = data
-                headers.extend(header for ii in xrange(data.shape[0]))
-                filenames.extend(file for ii in xrange(data.shape[0]))
+                headers.extend(header for ii in range(data.shape[0]))
+                filenames.extend(file for ii in range(data.shape[0]))
                 n += data.shape[0]
             elif len(data.shape) == 2: #one image
                 all_data[n,:,:] = data

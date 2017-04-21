@@ -44,12 +44,12 @@ def bfixpix(data, badmask, n=4, retdat=False):
 
     badx, bady = np.nonzero(badmask)
     nbad = len(badx)
-    print 'bfixpix: %i bad'%nbad
+    print('bfixpix: %i bad'%nbad)
 
     if retdat:
         data = np.array(data, copy=True)
 
-    print 'looping over %i pixels'%nbad
+    print('looping over %i pixels'%nbad)
     for ii in range(nbad):
         thisloc = badx[ii], bady[ii]
         rad = 0
@@ -98,9 +98,9 @@ def find_neighbors(badmask, n=4, retdat=False):
     nx, ny = badmask.shape
     badx, bady = np.nonzero(badmask)
     nbad = len(badx)
-    print 'bfixpix: %i bad'%nbad
+    print('bfixpix: %i bad'%nbad)
 
-    print 'looping over %i pixels'%nbad
+    print('looping over %i pixels'%nbad)
     bad_and_neighbors=[]
     for ii in range(nbad):
         thisloc = badx[ii], bady[ii]
